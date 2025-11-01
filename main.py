@@ -1,59 +1,89 @@
+import os
 import pyautogui
 import pyperclip
 import time
 from openai import OpenAI
 
-client = OpenAI(
-    api_key="enter the api key",
-    )
+# Set your key using environment variable instead of hardcoding
+# Example in terminal: setx OPENAI_API_KEY "your_api_key"
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-def is_last_message_from_sender(chat_log, sender_name="name"):
-    #split the chat log into individual messages
-    messages = chat_log.strip().split("/2025]")[-1]
-    if sender_name in messages:
-        return True
-    return False
+# HELPER FUNCTIONS
+def get_chat_history(region_coords):
+    try:
+        start_x, start_y, end_x, end_y = region_coords
+        pyautogui.moveTo(start_x, start_y)
+        pyautogui.dragTo(end_x, end_y, duration=1.0, button='left')
+        pyautogui.hotkey('ctrl', 'c')
+        time.sleep(0.5)
+        return pyperclip.paste().strip()
+    except Exception as e:
+        print(f"[ERROR] Failed to copy chat: {e}")
+        return ""
 
-# Step 1: Click on the icon at (1274,1165)
-pyautogui.click(1274,1165)
-time.sleep(1) #wait for 1 second to ensure that the click is registered
-while True:
-    
-    # Step 2: Move the mouse to the starting point of the text selection (767,278) to (1748,1020)
-    pyautogui.moveTo(764,355)
-    pyautogui.dragTo(1763,1016,duration=1.0,button='left') # drag for 1 second
+def send_message(response, message_box_coords):
+    try:
+        x, y = message_box_coords
+        pyautogui.click(x, y)
+        pyperclip.copy(response)
+        pyautogui.hotkey('ctrl', 'v')
+        pyautogui.press('enter')
+    except Exception as e:
+        print(f"[ERROR] Failed to send message: {e}")
 
-    # Step 3: Copy the selected text to the clipboard
-    pyautogui.hotkey('ctrl', 'c')
-    pyautogui.click(773,1074)
-    time.sleep(1) #wait for 1 second to ensure that the copy command is completed
+def generate_ai_response(chat_history):
+    try:
+        completion = client.chat.completions.create(
+            model="gpt-4o-mini",  
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are (your name) from India, bilingual (English and Telugu). "
+                        "Respond naturally as if chatting in a friendly conversation."
+                    )
+                },
+                {"role": "user", "content": chat_history}
+            ]
+        )
+        return completion.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"[ERROR] OpenAI API call failed: {e}")
+        return "Sorry, something went wrong while generating my response."
 
+# MAIN CHAT AUTOMATION LOOP
+def main():
+    print("Starting chat automation... Press Ctrl+C to stop anytime.")
 
-    # Step 4: Retrieve the text from the clipboard and store it in a variable
-    chat_history = pyperclip.paste()
+    # Step 1: Click on the chat icon (adjust these coordinates)
+    chat_icon_coords = (1410, 1169)
+    text_region = (706, 278, 1791, 1084)
+    message_box_coords = (905, 1091)
 
-    # Print the selected text to verify
-    print(chat_history)
-
-    completion = client.chat.completions.create(
-      model="gpt-3.5-turbo",
-      messages=[
-        {"role": "system", "content": "You are a person named (your name) who speaks english as well as telugu You are from india. You analyze chat history and respond like (your name) . Output should be the next chat response (text message only)"
-          },
-        {"role": "user", "content":chat_history}
-      ]
-    )
-      
-    response = completion.choices[0].message.content
-    pyperclip.copy(response)
-
-    # Step 6: Click at (937,1074)
-    pyautogui.click(946,1082)
+    pyautogui.click(*chat_icon_coords)
     time.sleep(1)
 
-    # Step 7: Paste the text
-    pyautogui.hotkey('ctrl', 'v')
-    time.sleep(1)
+    while True:
+        chat_history = get_chat_history(text_region)
 
-    # Step 8: Press Enter
-    pyautogui.press('enter')
+        if not chat_history:
+            print("No text found, retrying...")
+            time.sleep(3)
+            continue
+
+        print("\n[DEBUG] Chat history captured.")
+        print(chat_history[:300], "...\n")  # preview first 300 chars
+
+        ai_reply = generate_ai_response(chat_history)
+        print(f"[AI Reply] {ai_reply}\n")
+
+        send_message(ai_reply, message_box_coords)
+
+        print("[INFO] Message sent. Waiting for new messages...\n")
+        time.sleep(10)  # avoid spamming or overloading API
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nAutomation stopped by user.")
